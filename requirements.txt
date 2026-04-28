@@ -1,0 +1,12 @@
+anthropic>=0.40.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sse-starlette>=2.1.0
+tree-sitter>=0.23.0
+tree-sitter-python>=0.23.0
+sentence-transformers>=3.3.0
+faiss-cpu>=1.9.0
+gitpython>=3.1.43
+gradio>=5.0.0
+pytest>=8.3.0
+ruff>=0.7.0
