@@ -130,7 +130,7 @@ Run: `pytest eval/ -v --report=eval-report.html`
 **6 weeks, May 5 → June 15, 2026**
 
 - [x] **Week 1** (4/28–5/4) — Repo scaffolding, README, CI, FastAPI hello-world endpoint
-- [ ] **Week 2** (5/5–5/11) — Tree-sitter Python indexer; SQLite schema for symbols + call edges; index a single test repo
+- [x] **Week 2** (5/5–5/11) — Tree-sitter Python indexer; SQLite schema for symbols/imports/calls; `python -m codebase_explainer index <path>` walks a real repo, persists into SQLite, and runs a callee-resolution pass that fills `calls.callee_id` for in-repo references via self/cls scoping, import aliases, and same-file lookup
 - [ ] **Week 3** (5/12–5/18) — Agent loop with three tools (`read_file`, `grep`, `find_callers`); CLI chat working end-to-end
 - [ ] **Week 4** (5/19–5/25) — Embedding layer (FAISS + sentence-transformers); add JavaScript and Go grammars; `view_symbol` tool
 - [ ] **Week 5** (5/26–6/1) — Eval harness with 20 golden cases; `git_log` tool; prompt caching wired in

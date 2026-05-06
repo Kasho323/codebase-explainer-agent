@@ -31,11 +31,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "index":
         stats = index_repo(args.path, args.db)
         print(f"Indexed {stats.files} files into {args.db}")
-        print(f"  symbols: {stats.symbols}")
-        print(f"  calls:   {stats.calls}")
-        print(f"  imports: {stats.imports}")
+        print(f"  symbols:  {stats.symbols}")
+        print(f"  imports:  {stats.imports}")
+        print(
+            f"  calls:    {stats.calls}  "
+            f"(resolved to in-repo symbols: {stats.resolved_calls})"
+        )
         if stats.skipped:
-            print(f"  skipped: {stats.skipped}")
+            print(f"  skipped:  {stats.skipped}")
         return 0
 
     parser.print_help()

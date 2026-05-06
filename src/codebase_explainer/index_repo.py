@@ -8,6 +8,7 @@ from pathlib import Path
 from codebase_explainer.indexer import extract_file
 from codebase_explainer.persistence import hash_source, write_file_index
 from codebase_explainer.repo_walker import relative_module_prefix, walk_python_files
+from codebase_explainer.resolver import resolve_callees
 from codebase_explainer.schema import connect, init_db
 
 
@@ -18,6 +19,7 @@ class IndexStats:
     calls: int = 0
     imports: int = 0
     skipped: int = 0
+    resolved_calls: int = 0
 
 
 def index_repo(repo_root: str | Path, db_path: str | Path) -> IndexStats:
@@ -63,5 +65,6 @@ def index_repo(repo_root: str | Path, db_path: str | Path) -> IndexStats:
             stats.imports += len(file_index.imports)
 
         conn.commit()
+        stats.resolved_calls = resolve_callees(conn)
 
     return stats
