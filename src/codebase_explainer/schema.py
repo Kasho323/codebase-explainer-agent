@@ -4,10 +4,17 @@ The index stores everything the agent's tools query against:
 - files: every source file we've parsed
 - symbols: functions, classes, methods (with parent links for nesting)
 - imports: import statements per file
-- calls: caller -> callee edges, both textual and resolved
+- calls: caller -> callee edges
 
 Designed to be tiny, queryable from cold without ORM, and easy to drop and
 rebuild incrementally as the indexer evolves.
+
+Schema versions:
+    v1 (initial): calls.caller_id was a NOT NULL FK to symbols(id).
+    v2 (current): calls now uses caller_qualified_name TEXT (NULL allowed,
+        for module-level call sites such as decorators), and gains a
+        file_id FK so cascading deletes drop a file's calls atomically.
+        v1 DBs cannot auto-migrate; delete and re-run init_db.
 """
 
 from __future__ import annotations
@@ -15,7 +22,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = [
     """
@@ -66,17 +73,18 @@ DDL = [
     """
     CREATE TABLE IF NOT EXISTS calls (
         id INTEGER PRIMARY KEY,
-        caller_id INTEGER NOT NULL,
+        file_id INTEGER NOT NULL,
+        caller_qualified_name TEXT,
         callee_name TEXT NOT NULL,
         callee_id INTEGER,
         line INTEGER NOT NULL,
-        FOREIGN KEY (caller_id) REFERENCES symbols(id) ON DELETE CASCADE,
+        FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
         FOREIGN KEY (callee_id) REFERENCES symbols(id) ON DELETE SET NULL
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_calls_callee_name ON calls(callee_name)",
-    "CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_id)",
-    "CREATE INDEX IF NOT EXISTS idx_calls_callee_id ON calls(callee_id)",
+    "CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_qualified_name)",
+    "CREATE INDEX IF NOT EXISTS idx_calls_file ON calls(file_id)",
 ]
 
 
