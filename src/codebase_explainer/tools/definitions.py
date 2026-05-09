@@ -101,4 +101,23 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["name"],
         },
     },
+    {
+        "name": "view_symbol",
+        "description": (
+            "One-shot deep lookup for a symbol: returns location, signature, docstring, "
+            "the source body, the parent class (if a method), every caller, and every "
+            "callee — all in one call. Prefer this over chaining find_definition + "
+            "read_file + find_callers when you want to understand a single symbol fully."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Unqualified name ('foo'), qualified suffix ('module.foo'), or fully-qualified name.",
+                },
+            },
+            "required": ["name"],
+        },
+    },
 ]

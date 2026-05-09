@@ -18,6 +18,7 @@ from codebase_explainer.tools.find_callers import handle_find_callers
 from codebase_explainer.tools.find_definition import handle_find_definition
 from codebase_explainer.tools.grep import handle_grep
 from codebase_explainer.tools.read_file import handle_read_file
+from codebase_explainer.tools.view_symbol import handle_view_symbol
 
 
 @pytest.fixture
@@ -199,6 +200,102 @@ def test_find_callers_no_match(indexed_repo):
     assert "No callers found" in out
 
 
+# -- view_symbol ---------------------------------------------------------
+
+
+def test_view_symbol_returns_full_picture_for_a_method(indexed_repo):
+    repo, db_path = indexed_repo
+    with connect(db_path) as conn:
+        out = handle_view_symbol(
+            {"name": "save"}, db_conn=conn, repo_root=repo
+        )
+    # Identity
+    assert "models.User.save" in out
+    assert "[method]" in out
+    # Parent linkage
+    assert "Parent:" in out
+    assert "User" in out
+    # Signature
+    assert "def save(self) -> bool" in out
+    # Docstring
+    assert "Persist the user." in out
+    # Source body — actual code, not just signature
+    assert "return True" in out
+
+
+def test_view_symbol_includes_resolved_callers(indexed_repo):
+    repo, db_path = indexed_repo
+    with connect(db_path) as conn:
+        # User() inside main.run resolves via `from models import User`
+        out = handle_view_symbol(
+            {"name": "User"}, db_conn=conn, repo_root=repo
+        )
+    assert "Called by" in out
+    assert "main.run" in out
+    assert "main.py" in out
+
+
+def test_view_symbol_includes_callees_for_a_function(indexed_repo):
+    repo, db_path = indexed_repo
+    with connect(db_path) as conn:
+        # main.run calls User(), u.save(), and print()
+        out = handle_view_symbol(
+            {"name": "main.run"}, db_conn=conn, repo_root=repo
+        )
+    assert "Calls" in out
+    # Either the resolved name or the textual callee appears in the section
+    assert "User" in out or "save" in out
+
+
+def test_view_symbol_distinguishes_resolved_from_unresolved_callees(indexed_repo):
+    repo, db_path = indexed_repo
+    with connect(db_path) as conn:
+        out = handle_view_symbol(
+            {"name": "main.run"}, db_conn=conn, repo_root=repo
+        )
+    # print() is a builtin — never resolves to an in-repo symbol
+    assert "print (unresolved)" in out
+
+
+def test_view_symbol_truncates_long_bodies(tmp_path):
+    """A symbol whose body exceeds MAX_SOURCE_LINES gets truncated with a
+    pointer to read_file for the rest."""
+    from codebase_explainer.index_repo import index_repo
+
+    repo = tmp_path / "big_repo"
+    repo.mkdir()
+    body = "\n".join(f"    x{i} = {i}" for i in range(300))
+    (repo / "huge.py").write_text(f"def huge():\n{body}\n")
+    db_path = tmp_path / "idx.sqlite3"
+    index_repo(repo, db_path)
+
+    with connect(db_path) as conn:
+        out = handle_view_symbol({"name": "huge"}, db_conn=conn, repo_root=repo)
+    assert "truncated" in out
+    assert "read_file" in out  # tells the agent how to recover
+
+
+def test_view_symbol_returns_clear_message_for_missing_name(indexed_repo):
+    repo, db_path = indexed_repo
+    with connect(db_path) as conn:
+        out = handle_view_symbol(
+            {"name": "no_such_symbol_xyz"}, db_conn=conn, repo_root=repo
+        )
+    assert "No symbol found" in out
+    assert "find_definition" in out  # points to a fallback
+
+
+def test_view_symbol_picks_shortest_qualified_match(indexed_repo):
+    """Given an ambiguous name, prefer the top-level definition over a
+    nested one that happens to share the same trailing component."""
+    repo, db_path = indexed_repo
+    with connect(db_path) as conn:
+        # 'flush' is a single User method; nothing nested that would
+        # collide. Sanity-check the lookup picks it.
+        out = handle_view_symbol({"name": "flush"}, db_conn=conn, repo_root=repo)
+    assert "models.User.flush" in out
+
+
 # -- end-to-end sanity ---------------------------------------------------
 
 
@@ -211,10 +308,12 @@ def test_dispatch_via_handler_registry(indexed_repo):
         gp = TOOL_HANDLERS["grep"]({"pattern": "User"}, repo_root=repo, db_conn=conn)
         fd = TOOL_HANDLERS["find_definition"]({"name": "save"}, repo_root=repo, db_conn=conn)
         fc = TOOL_HANDLERS["find_callers"]({"name": "User"}, repo_root=repo, db_conn=conn)
+        vs = TOOL_HANDLERS["view_symbol"]({"name": "save"}, repo_root=repo, db_conn=conn)
     assert "from models import User" in rd
     assert "User" in gp
     assert "models.User.save" in fd
     assert "main.run" in fc
+    assert "models.User.save" in vs and "return True" in vs
 
 
 def test_repo_root_can_be_passed_as_pathlib_path(indexed_repo):

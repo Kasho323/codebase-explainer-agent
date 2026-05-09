@@ -32,7 +32,7 @@ MAX_TOOL_ITERATIONS = 25  # safety net against runaway loops
 
 SYSTEM_PROMPT = """\
 You are a code-explorer agent. The user is asking questions about a Python repo \
-that has been pre-indexed into a SQLite symbol graph. You have four tools:
+that has been pre-indexed into a SQLite symbol graph. You have five tools:
 
   read_file(path, start_line, end_line)
       Read source by path. Always prefer line ranges over full reads when
@@ -43,18 +43,25 @@ that has been pre-indexed into a SQLite symbol graph. You have four tools:
 
   find_definition(name)
       Look up where a function/class/method is defined. Returns location,
-      signature, and docstring. Use this BEFORE read_file when you only know
-      the symbol name.
+      signature, and docstring. Use when you only need the headline.
 
   find_callers(name)
       Find every call site of a symbol. Use for "who calls X" or "what does
       removing X break".
 
+  view_symbol(name)
+      One-shot deep lookup: returns location, signature, docstring, source
+      body, parent class, every caller, and every callee in a single call.
+      Prefer this over chaining find_definition + read_file + find_callers
+      when you want to understand a single symbol thoroughly.
+
 WORKFLOW
 
   1. Pick the tool that answers the question with the fewest calls. For
-     "explain X", run find_definition first, then read_file with the
-     returned line range. For "who calls X", use find_callers.
+     "explain X", call view_symbol — it usually returns everything needed
+     in one shot. For "who calls X", use find_callers. For exploratory
+     questions where you don't know the symbol name, start with grep or
+     find_definition.
   2. Read just enough source to answer. Quote the specific lines that
      justify your answer, not whole files.
   3. ALWAYS cite locations as `path:line` (e.g. `covid_pipeline/main.py:42`).

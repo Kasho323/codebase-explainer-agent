@@ -44,14 +44,17 @@ graph LR
     Tools --> T2[grep]
     Tools --> T3[find_definition]
     Tools --> T4[find_callers]
-    Tools -.-> T5[view_symbol — Week 4]
-    Tools -.-> T6[git_log — Week 5]
+    Tools --> T5[view_symbol]
+    Tools -.-> T6[search_semantic — Week 4]
+    Tools -.-> T7[git_log — Week 5]
 
     T1 --> Files[(Repo on disk)]
     T2 --> Files
     T3 --> Symbols[(SQLite symbol graph)]
     T4 --> Symbols
-    T5 -.-> Vectors[(FAISS index — Week 4)]
+    T5 --> Symbols
+    T5 --> Files
+    T6 -.-> Vectors[(FAISS index — Week 4)]
 
     Indexer[Tree-sitter indexer<br/>+ resolver] --> Symbols
     Indexer -.-> Vectors
@@ -63,7 +66,7 @@ graph LR
 **How it answers**:
 1. **Symbol layer** — tree-sitter extracts every function, class, method, import, and call edge into a SQLite graph. A resolution pass turns textual callees (`basket.build_graph`) into `symbols.id` foreign keys via import-aware lookup, so "who calls X" becomes a JOIN, not a regex.
 2. **Embedding layer** *(Week 4)* — file and symbol-doc embeddings in FAISS for fuzzy lookups ("anything related to authentication").
-3. **Agent layer** — Claude Sonnet 4.6 with four tools (six by Week 5) decides which layer to query. Adaptive thinking for multi-step navigation, prompt caching for the tool list and system prompt.
+3. **Agent layer** — Claude Sonnet 4.6 with five tools (`read_file`, `grep`, `find_definition`, `find_callers`, `view_symbol`) decides which layer to query. Adaptive thinking for multi-step navigation, prompt caching for the tool list and system prompt. Two more tools (`search_semantic`, `git_log`) ship in Weeks 4–5.
 
 ---
 
@@ -147,7 +150,10 @@ The harness lands in Week 5.
 - [x] **Week 1** (4/28–5/4) — Repo scaffolding, README, CI, FastAPI hello-world endpoint.
 - [x] **Week 2** (5/5–5/11) — Tree-sitter Python indexer; SQLite schema for symbols/imports/calls; `python -m codebase_explainer index <path>` walks a real repo, persists into SQLite, and runs a callee-resolution pass that fills `calls.callee_id` for in-repo references via self/cls scoping, import aliases, and same-file lookup.
 - [x] **Week 3** (5/12–5/18) — Manual tool-use loop on Claude Sonnet 4.6 with four tools (`read_file`, `grep`, `find_definition`, `find_callers`). Adaptive thinking + prompt caching wired in. Interactive REPL via `python -m codebase_explainer chat --db <file> --repo-root <path>` with `/reset` / `/exit`, surfaces every tool call as the agent makes it, cites results as `path:line`. **84 tests passing.**
-- [ ] **Week 4** (5/19–5/25) — Embedding layer (FAISS + sentence-transformers); JavaScript and Go grammars; `view_symbol` tool.
+- [ ] **Week 4** (5/19–5/25) — partially shipped:
+  - [x] `view_symbol` tool: one-shot deep lookup returning location, signature, docstring, source body, parent, callers, and callees. **91 tests passing.**
+  - [ ] Embedding layer (FAISS + sentence-transformers/all-MiniLM-L6-v2) + `search_semantic` tool.
+  - [ ] JavaScript and Go grammars (Go may slip to Week 5 depending on indexer dispatch refactor).
 - [ ] **Week 5** (5/26–6/1) — Eval harness with 20 golden cases; `git_log` tool; deeper prompt-caching tuning across long sessions.
 - [ ] **Week 6** (6/2–6/15) — Gradio UI; Hugging Face Spaces deploy; demo gif; polish README; companion blog post.
 
@@ -168,7 +174,8 @@ codebase-explainer-agent/
 │   │   ├── read_file.py
 │   │   ├── grep.py
 │   │   ├── find_definition.py
-│   │   └── find_callers.py
+│   │   ├── find_callers.py
+│   │   └── view_symbol.py
 │   ├── indexer.py           # Tree-sitter → Symbol / Call / Import dataclasses
 │   ├── repo_walker.py       # File-tree walker with VCS/cache skip-list
 │   ├── persistence.py       # Idempotent FileIndex → SQLite
