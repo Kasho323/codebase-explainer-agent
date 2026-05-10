@@ -1,23 +1,50 @@
 # Golden Eval Cases
 
-Frozen test set for measuring quality across releases.
+Frozen, hand-curated cases for measuring agent quality across releases.
 
-**Structure (target by Week 5)**:
-- 5 real open-source repos × 4 question types = 20 cases
-- Question types: *symbol-lookup*, *call-graph*, *design-intent*, *change-impact*
+## Layout
 
-Each case is a YAML file:
-
-```yaml
-id: httpx-001
-repo: https://github.com/encode/httpx
-question: "Where is the connection pool managed?"
-expected_citations:
-  - "httpx/_transports/default.py:120"
-expected_gist: |
-  The connection pool lives in HTTPTransport via httpcore.ConnectionPool.
-  It is created in __init__ and disposed in close().
-question_type: design-intent
+```
+eval/golden_cases/
+└── <repo_name>/
+    ├── README.md
+    └── NN_<type>_<short_name>.toml
 ```
 
-To be populated in Week 5.
+Each `.toml` is one scored question. See [`basket_graph_analytics/01_def_build_graph.toml`](basket_graph_analytics/01_def_build_graph.toml) for an example.
+
+## Case schema
+
+```toml
+id = "basket-01"                                    # globally unique
+repo = "Kasho323/basket-graph-analytics"            # informational; runner uses --repo-root
+repo_sha = "HEAD"                                   # commit pin (line numbers should hold)
+question = "Where is the `build_graph` function defined?"
+question_type = "definition_lookup"                 # or call_graph | design_intent | change_impact
+expected_citations = ["basket_graph/basket.py:49"]  # any one match = pass
+expected_gist = """
+Free-form expected-essence text. Used by the LLM-judge in 5b for gist match.
+"""
+```
+
+## How to run
+
+```bash
+# 1. Index the target repo
+python -m codebase_explainer index ./basket-graph-analytics --db /tmp/basket.sqlite3
+
+# 2. Run the eval over its cases
+ANTHROPIC_API_KEY=sk-ant-... python -m codebase_explainer eval \
+    --cases eval/golden_cases/basket_graph_analytics \
+    --db /tmp/basket.sqlite3 \
+    --repo-root ./basket-graph-analytics \
+    --output /tmp/eval-report.md
+```
+
+## Roadmap
+
+- **5a (now)**: 3 cases against basket-graph-analytics; deterministic citation_match scorer.
+- **5b**: add LLM-judge scorers (faithfulness, gist match). Judge model is configurable, never hardcoded.
+- **5c**: expand to ~20 cases across 5 repos (3 own + 2 external pinned commits).
+
+Eval runs are **not** part of CI — they need an Anthropic API key and indexed repos.

@@ -1,0 +1,13 @@
+id = "basket-03"
+repo = "Kasho323/basket-graph-analytics"
+repo_sha = "HEAD"
+question = "Explain what `dfs._visit` does, where it is defined, and why it is nested inside `dfs`."
+question_type = "design_intent"
+expected_citations = ["basket_graph/basket.py:104"]
+expected_gist = """
+_visit is a nested function inside dfs (basket_graph/basket.py around line 104).
+It performs the recursive depth-first traversal, mutating the closure-captured
+visited set and result list of its enclosing dfs call. It is nested rather than
+module-level because it relies on those closure variables and has no use
+outside one dfs invocation.
+"""

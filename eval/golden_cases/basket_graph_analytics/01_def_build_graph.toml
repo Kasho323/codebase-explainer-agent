@@ -1,0 +1,13 @@
+id = "basket-01"
+repo = "Kasho323/basket-graph-analytics"
+repo_sha = "HEAD"
+question = "Where is the `build_graph` function defined and what does it return?"
+question_type = "definition_lookup"
+expected_citations = ["basket_graph/basket.py:49"]
+expected_gist = """
+build_graph is a top-level function in basket_graph/basket.py starting at line 49.
+It takes an iterable of baskets (each basket being an iterable of items) and
+returns a co-occurrence Graph — an undirected weighted graph where nodes are
+items and edge weights are how often the two items co-occurred in the same
+basket.
+"""

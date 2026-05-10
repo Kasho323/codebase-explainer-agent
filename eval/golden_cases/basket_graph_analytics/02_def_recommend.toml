@@ -1,0 +1,12 @@
+id = "basket-02"
+repo = "Kasho323/basket-graph-analytics"
+repo_sha = "HEAD"
+question = "Where is the `recommend` function defined and what is its signature?"
+question_type = "definition_lookup"
+expected_citations = ["basket_graph/basket.py:136"]
+expected_gist = """
+recommend is a top-level function in basket_graph/basket.py starting at line 136.
+It takes a Graph, an item name, a top-k count, and a minimum support threshold,
+and returns the top-k neighbours of that item from the co-occurrence graph
+ranked by edge weight.
+"""

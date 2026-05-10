@@ -62,6 +62,46 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["low", "medium", "high", "max"],
         help=f"Reasoning effort level (default: {DEFAULT_EFFORT}).",
     )
+
+    eval_cmd = sub.add_parser(
+        "eval",
+        help="Run golden-case evaluation against the agent (5a: citation_match only).",
+    )
+    eval_cmd.add_argument(
+        "--cases",
+        type=Path,
+        required=True,
+        help="Directory of .toml golden cases (recursive).",
+    )
+    eval_cmd.add_argument(
+        "--db",
+        type=Path,
+        required=True,
+        help="Pre-built index DB the agent will query against.",
+    )
+    eval_cmd.add_argument(
+        "--repo-root",
+        type=Path,
+        required=True,
+        help="Repo root the index was built against.",
+    )
+    eval_cmd.add_argument(
+        "--output",
+        type=Path,
+        default=Path("eval-report.md"),
+        help="Where to write the markdown report (default: eval-report.md).",
+    )
+    eval_cmd.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"Claude model ID (default: {DEFAULT_MODEL}).",
+    )
+    eval_cmd.add_argument(
+        "--effort",
+        default=DEFAULT_EFFORT,
+        choices=["low", "medium", "high", "max"],
+        help=f"Reasoning effort level (default: {DEFAULT_EFFORT}).",
+    )
     return parser
 
 
@@ -107,8 +147,68 @@ def main(argv: list[str] | None = None) -> int:
             effort=args.effort,
         )
 
+    if args.cmd == "eval":
+        # Lazy imports keep the index/chat paths free of eval-only modules.
+        from codebase_explainer.eval.case import load_cases
+        from codebase_explainer.eval.report import render_markdown
+        from codebase_explainer.eval.runner import run_eval
+
+        cases = load_cases(args.cases)
+        if not cases:
+            print(f"No .toml cases under {args.cases}", file=sys.stderr)
+            return 1
+
+        agent_factory = _build_real_agent_factory(
+            db_path=args.db,
+            repo_root=args.repo_root,
+            model=args.model,
+            effort=args.effort,
+        )
+        results = run_eval(cases, agent_factory=agent_factory)
+        args.output.write_text(render_markdown(results), encoding="utf-8")
+
+        passes = sum(1 for r in results if r.citation_pass)
+        print(f"Wrote {args.output}  —  {passes}/{len(results)} citation pass.")
+        return 0
+
     parser.print_help()
     return 2
+
+
+def _build_real_agent_factory(
+    *,
+    db_path: Path,
+    repo_root: Path,
+    model: str,
+    effort: str,
+):
+    """Construct a closure that builds a fresh Agent per case.
+
+    Each case gets its own Agent so the conversation history doesn't leak
+    between unrelated questions. The DB connection and Anthropic client
+    are reused across cases for efficiency.
+    """
+    from anthropic import Anthropic
+
+    from codebase_explainer.agent import Agent
+    from codebase_explainer.chat import _maybe_load_embedder
+    from codebase_explainer.schema import connect
+
+    client = Anthropic()
+    conn = connect(db_path)
+    embedder = _maybe_load_embedder(conn)
+
+    def factory(_case):
+        return Agent(
+            client=client,
+            db_conn=conn,
+            repo_root=repo_root,
+            model=model,
+            effort=effort,
+            embedder=embedder,
+        )
+
+    return factory
 
 
 if __name__ == "__main__":
