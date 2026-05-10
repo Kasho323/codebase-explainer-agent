@@ -75,7 +75,7 @@ graph LR
 | Layer | Choice | Why |
 |---|---|---|
 | LLM | Anthropic Claude Sonnet 4.6 | Strong tool use, 200K context, balanced cost. Adaptive thinking + `effort=medium` by default. |
-| Code parsing | tree-sitter (Python today; JavaScript + Go in Week 4) | Battle-tested AST extraction, language-agnostic. |
+| Code parsing | tree-sitter (Python today; JavaScript + Go upcoming) | Battle-tested AST extraction, language-agnostic. |
 | Symbol store | SQLite | Zero infra, fast joins for call-graph queries, fits in a single file you can `scp` around. |
 | Vector store | FAISS (local, in-memory `IndexFlatIP`) | No external service, no second file to keep in sync. Fits in RAM for repos under 100k LOC. |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` | Free, CPU-only, 384-dim. Vectors stored as float32 BLOBs in SQLite. |
@@ -135,13 +135,11 @@ Good first questions to try:
 
 ---
 
-## Evaluation
+## Evaluation (Week 5 — planned)
 
-Quality is tracked against a frozen eval set: **5 real open-source repos × 4 question types = 20 golden cases**. See [`eval/golden_cases/`](eval/golden_cases/).
+*Coming Week 5:* Quality is tracked against a frozen eval set: **5 real open-source repos × 4 question types = 20 golden cases**. See [`eval/golden_cases/`](eval/golden_cases/).
 
 Each case has a question, an expected `file:line` citation that any correct answer must include, and a free-form "expected gist" judged by Claude as LLM judge. Metrics tracked per release: citation accuracy, answer faithfulness, end-to-end latency p50/p95, token cost per query (split into input / cached / output).
-
-The harness lands in Week 5.
 
 ---
 
@@ -151,10 +149,10 @@ The harness lands in Week 5.
 
 - [x] **Week 1** (4/28–5/4) — Repo scaffolding, README, CI, FastAPI hello-world endpoint.
 - [x] **Week 2** (5/5–5/11) — Tree-sitter Python indexer; SQLite schema for symbols/imports/calls; `python -m codebase_explainer index <path>` walks a real repo, persists into SQLite, and runs a callee-resolution pass that fills `calls.callee_id` for in-repo references via self/cls scoping, import aliases, and same-file lookup.
-- [x] **Week 3** (5/12–5/18) — Manual tool-use loop on Claude Sonnet 4.6 with four tools (`read_file`, `grep`, `find_definition`, `find_callers`). Adaptive thinking + prompt caching wired in. Interactive REPL via `python -m codebase_explainer chat --db <file> --repo-root <path>` with `/reset` / `/exit`, surfaces every tool call as the agent makes it, cites results as `path:line`. **84 tests passing.**
+- [x] **Week 3** (5/12–5/18) — Manual tool-use loop on Claude Sonnet 4.6 with four tools (`read_file`, `grep`, `find_definition`, `find_callers`). Adaptive thinking + prompt caching wired in. Interactive REPL via `python -m codebase_explainer chat --db <file> --repo-root <path>` with `/reset` / `/exit`, surfaces every tool call as the agent makes it, cites results as `path:line`. **115 tests passing.**
 - [ ] **Week 4** (5/19–5/25) — partially shipped:
   - [x] `view_symbol` tool: one-shot deep lookup returning location, signature, docstring, source body, parent, callers, and callees.
-  - [x] Embedding layer: every symbol embedded with `sentence-transformers/all-MiniLM-L6-v2`, vectors stored as float32 BLOBs in SQLite, FAISS `IndexFlatIP` built in-memory per query. New `search_semantic` tool wired into the agent. The tool is auto-dropped from the active tool list if no embeddings exist, so prompt-cache stays stable across sessions. **117 tests passing.**
+  - [x] Embedding layer: every symbol embedded with `sentence-transformers/all-MiniLM-L6-v2`, vectors stored as float32 BLOBs in SQLite, FAISS `IndexFlatIP` built in-memory per query. New `search_semantic` tool wired into the agent. The tool is auto-dropped from the active tool list if no embeddings exist, so prompt-cache stays stable across sessions. **115 tests passing.**
   - [ ] JavaScript and Go grammars (Go may slip to Week 5 depending on indexer dispatch refactor).
 - [ ] **Week 5** (5/26–6/1) — Eval harness with 20 golden cases; `git_log` tool; deeper prompt-caching tuning across long sessions.
 - [ ] **Week 6** (6/2–6/15) — Gradio UI; Hugging Face Spaces deploy; demo gif; polish README; companion blog post.
@@ -189,9 +187,8 @@ codebase-explainer-agent/
 │   ├── persistence.py       # Idempotent FileIndex → SQLite
 │   ├── resolver.py          # Resolve textual callees → symbol_id
 │   ├── index_repo.py        # Orchestrator: walk + parse + persist + resolve + (optional) embed
-│   ├── schema.py            # SQLite DDL (v3: + embeddings table)
-│   └── main.py              # FastAPI placeholder (Week 6 deployment)
-├── tests/                   # 117 pytest cases across 11 files
+│   └── schema.py            # SQLite DDL (v3: + embeddings table)
+├── tests/                   # 115 tests across 12 files
 ├── eval/golden_cases/       # Frozen eval set (Week 5)
 ├── .github/workflows/ci.yml
 └── pyproject.toml
