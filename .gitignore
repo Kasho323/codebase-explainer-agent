@@ -49,3 +49,6 @@ logs/
 .repo_cache/
 .faiss_index/
 eval-report.html
+
+# Transient commit-message buffer used by the helper PowerShell flow
+.commit-msg.tmp
