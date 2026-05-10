@@ -13,6 +13,7 @@ from codebase_explainer.tools.find_callers import handle_find_callers
 from codebase_explainer.tools.find_definition import handle_find_definition
 from codebase_explainer.tools.grep import handle_grep
 from codebase_explainer.tools.read_file import handle_read_file
+from codebase_explainer.tools.search_semantic import handle_search_semantic
 from codebase_explainer.tools.view_symbol import handle_view_symbol
 
 TOOL_HANDLERS = {
@@ -21,6 +22,17 @@ TOOL_HANDLERS = {
     "find_definition": handle_find_definition,
     "find_callers": handle_find_callers,
     "view_symbol": handle_view_symbol,
+    "search_semantic": handle_search_semantic,
 }
 
-__all__ = ["TOOL_DEFINITIONS", "TOOL_HANDLERS"]
+#: Tool name we drop from the active tool list when the index has no
+#: embeddings or no embedder is configured. Filtering at agent-construction
+#: time (rather than at request time) keeps the prompt-cache key stable
+#: across a session.
+EMBEDDING_DEPENDENT_TOOLS = frozenset({"search_semantic"})
+
+__all__ = [
+    "EMBEDDING_DEPENDENT_TOOLS",
+    "TOOL_DEFINITIONS",
+    "TOOL_HANDLERS",
+]

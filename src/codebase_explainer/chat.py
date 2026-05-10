@@ -68,26 +68,72 @@ def run_chat(
         return 1
 
     with connect(db_path) as conn:
+        embedder = _maybe_load_embedder(conn)
+
         agent = Agent(
             client=client,
             db_conn=conn,
             repo_root=repo_root,
             model=model,
             effort=effort,
+            embedder=embedder,
         )
-        _print_banner(conn, db_path, repo_root, model, effort)
+        _print_banner(conn, db_path, repo_root, model, effort, embedder)
         _repl_loop(agent)
 
     return 0
 
 
-def _print_banner(conn, db_path, repo_root, model, effort) -> None:
+def _maybe_load_embedder(conn):
+    """If the index has embeddings, build the matching embedder; else None.
+
+    Reads the most-recent ``model_name`` from the embeddings table so we
+    use the same model that was used at index time. If the user re-indexed
+    with a different model, the latest one wins. Failure to import the
+    backend (e.g. torch not installed) returns ``None`` with a message —
+    the chat REPL still works, semantic search is just unavailable.
+    """
+    from codebase_explainer.embeddings import embedding_count
+
+    if embedding_count(conn) == 0:
+        return None
+
+    row = conn.execute(
+        "SELECT model_name FROM embeddings ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    model_name = row["model_name"]
+
+    if model_name.startswith("fake/"):
+        # Test fixture left this in. Don't try to load a real model.
+        from codebase_explainer.embeddings import FakeEmbedder
+
+        return FakeEmbedder()
+
+    try:
+        from codebase_explainer.embeddings import SentenceTransformerEmbedder
+
+        return SentenceTransformerEmbedder(model_name=model_name)
+    except Exception as e:  # noqa: BLE001 — fall back to no semantic search
+        print(
+            f"# Note: index has embeddings but couldn't load model "
+            f"({type(e).__name__}: {e}). Semantic search disabled.",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _print_banner(conn, db_path, repo_root, model, effort, embedder) -> None:
     n_files = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
     n_symbols = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
     n_calls = conn.execute("SELECT COUNT(*) FROM calls").fetchone()[0]
     print(f"# Codebase Explainer Agent  —  model={model}, effort={effort}")
     print(f"# Index: {db_path} ({n_files} files / {n_symbols} symbols / {n_calls} calls)")
     print(f"# Repo:  {repo_root}")
+    if embedder is not None:
+        n_emb = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+        print(f"# Semantic search: ON ({n_emb} embeddings, {embedder.model_name})")
+    else:
+        print("# Semantic search: OFF (re-index with --embed to enable)")
     print("# /exit to quit, /reset to clear conversation, /help for commands")
     print()
 

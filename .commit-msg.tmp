@@ -1,0 +1,73 @@
+Add embedding layer and search_semantic tool
+
+Week 4 increment 2: closes the second of three Week-4 deliverables.
+The agent gains a fuzzy-lookup path so it can answer "where is auth
+handled" / "anything related to retry logic" without needing the user
+to know a symbol name.
+
+Schema (bumped to v3)
+    - New `embeddings` table: one row per symbol via `symbol_id UNIQUE`,
+      vector stored as raw float32 BLOB, plus `model_name`, `dim`, and
+      the text we actually embedded for later inspection. Cascading FK
+      to `symbols(id)` so re-indexing a file drops its embeddings
+      atomically alongside symbols/calls/imports.
+
+embeddings/ subpackage
+    - `Embedder` Protocol with two implementations:
+        * `FakeEmbedder` — deterministic char-hash, no torch, used by
+          tests and as a fallback when the real model can't load.
+        * `SentenceTransformerEmbedder` — wraps
+          sentence-transformers/all-MiniLM-L6-v2 (or any compatible
+          model). Lazy-imports torch/ST inside __init__ so importing
+          the module is cheap and doesn't pull torch into CI.
+    - `chunker.py` builds the embeddable text per symbol:
+      `kind qualified_name`, signature, docstring, body — most
+      semantically dense content first so it survives the model's
+      256-token truncation window.
+    - `store.py` writes vectors via INSERT ... ON CONFLICT DO UPDATE
+      (idempotent re-embed) and serves search via an in-memory FAISS
+      `IndexFlatIP` built per call. Fast for repos under ~10K symbols
+      and avoids stale-index bugs entirely. faiss is also lazy-imported
+      so callers without the wheel still import the module.
+
+Tool + agent integration
+    - `search_semantic(query, k)` tool with hard cap k=20. Returns
+      results as `[score] [kind] qualified_name (path:line)` plus a
+      truncated docstring.
+    - Agent gains an optional `embedder` field. At construction it
+      computes `_tools` once: drops embedding-dependent tools when
+      either no embedder is configured or the index has zero
+      embeddings. Filtering at construction (rather than at request
+      time) keeps the prompt-cache key stable across the session.
+    - Tool handlers all accept `embedder=...` kwarg via existing
+      `**_` swallow; only `search_semantic` actually reads it.
+
+CLI
+    - `index --embed` opt-in flag. First run downloads ~80MB of model
+      weights. Default off — non-embedding indexes are smaller and
+      don't require torch.
+    - `chat` auto-detects whether the index has embeddings, reads the
+      stored `model_name`, and reconstructs the matching embedder. If
+      the model can't load (e.g. torch missing), prints a one-line
+      note and falls back to no semantic search rather than crashing.
+      The banner now reports semantic-search status.
+
+Tests (26 new — 117 total, all green)
+    - `conftest.py` extracts the shared `indexed_repo` fixture and
+      adds an `embedded_repo` variant that runs FakeEmbedder.
+    - `test_embeddings.py`: FakeEmbedder determinism + normalisation,
+      chunker output shape, store round-trip, INSERT-OR-UPDATE
+      semantics, search ordering and k-cap, empty-index handling.
+    - `test_search_semantic.py`: tool envelope, missing-embedder error
+      shape, missing-embeddings error shape, k clamping, plus four
+      tests of the Agent's construction-time tool filter (using
+      MagicMock for the Anthropic client — no API calls).
+
+CI
+    - Adds numpy and faiss-cpu to the install line. sentence-
+      transformers/torch stay out of CI; tests use FakeEmbedder.
+
+Manual verification
+    - Real-model dogfood is deferred to the Week 6 demo gif (consistent
+      with the existing pattern of not faking demo output in the
+      README).

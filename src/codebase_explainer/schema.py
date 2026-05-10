@@ -11,10 +11,15 @@ rebuild incrementally as the indexer evolves.
 
 Schema versions:
     v1 (initial): calls.caller_id was a NOT NULL FK to symbols(id).
-    v2 (current): calls now uses caller_qualified_name TEXT (NULL allowed,
-        for module-level call sites such as decorators), and gains a
-        file_id FK so cascading deletes drop a file's calls atomically.
-        v1 DBs cannot auto-migrate; delete and re-run init_db.
+    v2: calls now uses caller_qualified_name TEXT (NULL allowed, for
+        module-level call sites such as decorators), and gains a file_id
+        FK so cascading deletes drop a file's calls atomically.
+    v3 (current): adds embeddings table for the semantic-search tool.
+        One row per symbol, vector stored as a raw float32 BLOB. Existing
+        v2 DBs auto-pick-up the new table on the next init_db (CREATE IF
+        NOT EXISTS) without bumping their schema_meta row — that's fine,
+        callers should treat schema_meta as "highest version this file
+        has *ever* matched" rather than a strict equality check.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DDL = [
     """
@@ -85,6 +90,17 @@ DDL = [
     "CREATE INDEX IF NOT EXISTS idx_calls_callee_name ON calls(callee_name)",
     "CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_qualified_name)",
     "CREATE INDEX IF NOT EXISTS idx_calls_file ON calls(file_id)",
+    """
+    CREATE TABLE IF NOT EXISTS embeddings (
+        id INTEGER PRIMARY KEY,
+        symbol_id INTEGER NOT NULL UNIQUE,
+        model_name TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        chunk_text TEXT,
+        FOREIGN KEY (symbol_id) REFERENCES symbols(id) ON DELETE CASCADE
+    )
+    """,
 ]
 
 

@@ -120,4 +120,29 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["name"],
         },
     },
+    {
+        "name": "search_semantic",
+        "description": (
+            "Fuzzy semantic search over the symbol index. Returns the top-k "
+            "symbols whose docstring + body are closest to the natural-language "
+            "query, with similarity scores. Use this when you don't know the "
+            "symbol's name — e.g. 'where is auth handled', 'anything related "
+            "to retry logic'. Use grep when the query is a literal string and "
+            "find_definition when you already know the symbol name."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "A short natural-language description of what you're looking for.",
+                },
+                "k": {
+                    "type": "integer",
+                    "description": "Max results to return. Default 10, hard cap 20.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]

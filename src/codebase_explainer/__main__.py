@@ -25,6 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(".codebase-index.sqlite3"),
         help="SQLite DB path (default: .codebase-index.sqlite3).",
     )
+    index.add_argument(
+        "--embed",
+        action="store_true",
+        help=(
+            "Also embed every symbol with sentence-transformers/all-MiniLM-L6-v2 "
+            "to enable the search_semantic tool. Requires sentence-transformers "
+            "and faiss-cpu — pulls torch on first install (~2GB)."
+        ),
+    )
 
     chat = sub.add_parser(
         "chat",
@@ -61,7 +70,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "index":
-        stats = index_repo(args.path, args.db)
+        embedder = None
+        if args.embed:
+            # Lazy import so the non-embed path doesn't pull torch.
+            from codebase_explainer.embeddings import SentenceTransformerEmbedder
+
+            print(
+                f"Loading embedder ({SentenceTransformerEmbedder.DEFAULT_MODEL})... "
+                "first run downloads ~80MB.",
+                flush=True,
+            )
+            embedder = SentenceTransformerEmbedder()
+
+        stats = index_repo(args.path, args.db, embedder=embedder)
         print(f"Indexed {stats.files} files into {args.db}")
         print(f"  symbols:  {stats.symbols}")
         print(f"  imports:  {stats.imports}")
@@ -69,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
             f"  calls:    {stats.calls}  "
             f"(resolved to in-repo symbols: {stats.resolved_calls})"
         )
+        if stats.embedded_symbols:
+            print(f"  embedded: {stats.embedded_symbols}")
         if stats.skipped:
             print(f"  skipped:  {stats.skipped}")
         return 0

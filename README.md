@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-⚠️ **Status: under active development — first public milestone targeted for mid-June 2026.** Indexer and CLI chat are working today; embedding layer, multi-language grammars, eval harness, and Gradio UI ship in weeks 4–6. See [Roadmap](#roadmap).
+⚠️ **Status: under active development — first public milestone targeted for mid-June 2026.** Indexer, CLI chat, and the embedding-backed semantic search tool are working today; multi-language grammars, eval harness, and Gradio UI ship in weeks 4–6. See [Roadmap](#roadmap).
 
 ---
 
@@ -45,7 +45,7 @@ graph LR
     Tools --> T3[find_definition]
     Tools --> T4[find_callers]
     Tools --> T5[view_symbol]
-    Tools -.-> T6[search_semantic — Week 4]
+    Tools --> T6[search_semantic]
     Tools -.-> T7[git_log — Week 5]
 
     T1 --> Files[(Repo on disk)]
@@ -54,10 +54,10 @@ graph LR
     T4 --> Symbols
     T5 --> Symbols
     T5 --> Files
-    T6 -.-> Vectors[(FAISS index — Week 4)]
+    T6 --> Vectors[(FAISS index)]
 
-    Indexer[Tree-sitter indexer<br/>+ resolver] --> Symbols
-    Indexer -.-> Vectors
+    Indexer[Tree-sitter indexer<br/>+ resolver<br/>+ embedder] --> Symbols
+    Indexer --> Vectors
 
     style Agent fill:#e1f5ff
     style Indexer fill:#fff4e1
@@ -65,8 +65,8 @@ graph LR
 
 **How it answers**:
 1. **Symbol layer** — tree-sitter extracts every function, class, method, import, and call edge into a SQLite graph. A resolution pass turns textual callees (`basket.build_graph`) into `symbols.id` foreign keys via import-aware lookup, so "who calls X" becomes a JOIN, not a regex.
-2. **Embedding layer** *(Week 4)* — file and symbol-doc embeddings in FAISS for fuzzy lookups ("anything related to authentication").
-3. **Agent layer** — Claude Sonnet 4.6 with five tools (`read_file`, `grep`, `find_definition`, `find_callers`, `view_symbol`) decides which layer to query. Adaptive thinking for multi-step navigation, prompt caching for the tool list and system prompt. Two more tools (`search_semantic`, `git_log`) ship in Weeks 4–5.
+2. **Embedding layer** — every symbol's signature + docstring + body is embedded with `sentence-transformers/all-MiniLM-L6-v2` (384-dim, CPU) and stored as a BLOB in SQLite. Search builds an in-memory FAISS index per query — fast for repos under ~10K symbols, no separate index file to keep in sync. Enabled with `index --embed`; the `search_semantic` tool is automatically dropped from the agent's tool list when the index has no embeddings, so Claude doesn't waste a call discovering it's unavailable.
+3. **Agent layer** — Claude Sonnet 4.6 with six tools (`read_file`, `grep`, `find_definition`, `find_callers`, `view_symbol`, `search_semantic`) decides which layer to query. Adaptive thinking for multi-step navigation, prompt caching for the tool list and system prompt. One more tool (`git_log`) ships in Week 5.
 
 ---
 
@@ -77,8 +77,8 @@ graph LR
 | LLM | Anthropic Claude Sonnet 4.6 | Strong tool use, 200K context, balanced cost. Adaptive thinking + `effort=medium` by default. |
 | Code parsing | tree-sitter (Python today; JavaScript + Go in Week 4) | Battle-tested AST extraction, language-agnostic. |
 | Symbol store | SQLite | Zero infra, fast joins for call-graph queries, fits in a single file you can `scp` around. |
-| Vector store | FAISS (local) — *Week 4* | No external service, fits in RAM for repos under 100k LOC. |
-| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` — *Week 4* | Free, runs on CPU, 384-dim. |
+| Vector store | FAISS (local, in-memory `IndexFlatIP`) | No external service, no second file to keep in sync. Fits in RAM for repos under 100k LOC. |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` | Free, CPU-only, 384-dim. Vectors stored as float32 BLOBs in SQLite. |
 | UI | CLI today; Gradio + HF Spaces in Week 6 | One-file chat UI, zero-cost public demo. |
 
 ---
@@ -91,7 +91,9 @@ cd codebase-explainer-agent
 pip install -r requirements.txt
 
 # 1. Index a Python repo on disk. The DB is a single SQLite file.
-python -m codebase_explainer index /path/to/some/repo --db /tmp/idx.sqlite3
+#    Add --embed to also embed every symbol for the semantic search tool
+#    (first run downloads ~80MB of model weights).
+python -m codebase_explainer index /path/to/some/repo --db /tmp/idx.sqlite3 [--embed]
 
 # 2. Point chat at the indexed DB and the repo root.
 export ANTHROPIC_API_KEY=sk-ant-...           # Linux/macOS
@@ -151,8 +153,8 @@ The harness lands in Week 5.
 - [x] **Week 2** (5/5–5/11) — Tree-sitter Python indexer; SQLite schema for symbols/imports/calls; `python -m codebase_explainer index <path>` walks a real repo, persists into SQLite, and runs a callee-resolution pass that fills `calls.callee_id` for in-repo references via self/cls scoping, import aliases, and same-file lookup.
 - [x] **Week 3** (5/12–5/18) — Manual tool-use loop on Claude Sonnet 4.6 with four tools (`read_file`, `grep`, `find_definition`, `find_callers`). Adaptive thinking + prompt caching wired in. Interactive REPL via `python -m codebase_explainer chat --db <file> --repo-root <path>` with `/reset` / `/exit`, surfaces every tool call as the agent makes it, cites results as `path:line`. **84 tests passing.**
 - [ ] **Week 4** (5/19–5/25) — partially shipped:
-  - [x] `view_symbol` tool: one-shot deep lookup returning location, signature, docstring, source body, parent, callers, and callees. **91 tests passing.**
-  - [ ] Embedding layer (FAISS + sentence-transformers/all-MiniLM-L6-v2) + `search_semantic` tool.
+  - [x] `view_symbol` tool: one-shot deep lookup returning location, signature, docstring, source body, parent, callers, and callees.
+  - [x] Embedding layer: every symbol embedded with `sentence-transformers/all-MiniLM-L6-v2`, vectors stored as float32 BLOBs in SQLite, FAISS `IndexFlatIP` built in-memory per query. New `search_semantic` tool wired into the agent. The tool is auto-dropped from the active tool list if no embeddings exist, so prompt-cache stays stable across sessions. **117 tests passing.**
   - [ ] JavaScript and Go grammars (Go may slip to Week 5 depending on indexer dispatch refactor).
 - [ ] **Week 5** (5/26–6/1) — Eval harness with 20 golden cases; `git_log` tool; deeper prompt-caching tuning across long sessions.
 - [ ] **Week 6** (6/2–6/15) — Gradio UI; Hugging Face Spaces deploy; demo gif; polish README; companion blog post.
@@ -169,21 +171,27 @@ codebase-explainer-agent/
 │   ├── agent.py             # Manual tool-use loop with prompt caching
 │   ├── chat.py              # Interactive REPL with /reset and /exit
 │   ├── tools/
-│   │   ├── __init__.py      # TOOL_HANDLERS registry
+│   │   ├── __init__.py      # TOOL_HANDLERS registry + EMBEDDING_DEPENDENT_TOOLS
 │   │   ├── definitions.py   # Tool JSON schemas (byte-stable for caching)
 │   │   ├── read_file.py
 │   │   ├── grep.py
 │   │   ├── find_definition.py
 │   │   ├── find_callers.py
-│   │   └── view_symbol.py
+│   │   ├── view_symbol.py
+│   │   └── search_semantic.py
+│   ├── embeddings/
+│   │   ├── __init__.py
+│   │   ├── embedder.py      # Embedder protocol + Fake + SentenceTransformer impls
+│   │   ├── chunker.py       # Symbol → embeddable text
+│   │   └── store.py         # SQLite BLOBs + in-memory FAISS search
 │   ├── indexer.py           # Tree-sitter → Symbol / Call / Import dataclasses
 │   ├── repo_walker.py       # File-tree walker with VCS/cache skip-list
 │   ├── persistence.py       # Idempotent FileIndex → SQLite
 │   ├── resolver.py          # Resolve textual callees → symbol_id
-│   ├── index_repo.py        # Orchestrator: walk + parse + persist + resolve
-│   ├── schema.py            # SQLite DDL (v2: cascading FKs)
+│   ├── index_repo.py        # Orchestrator: walk + parse + persist + resolve + (optional) embed
+│   ├── schema.py            # SQLite DDL (v3: + embeddings table)
 │   └── main.py              # FastAPI placeholder (Week 6 deployment)
-├── tests/                   # 84 pytest cases across 9 files
+├── tests/                   # 117 pytest cases across 11 files
 ├── eval/golden_cases/       # Frozen eval set (Week 5)
 ├── .github/workflows/ci.yml
 └── pyproject.toml
