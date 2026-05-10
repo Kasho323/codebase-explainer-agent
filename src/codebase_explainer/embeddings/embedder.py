@@ -9,12 +9,9 @@ constructed, so importing this module is cheap and doesn't pull in
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 import numpy as np
-
-if TYPE_CHECKING:
-    pass
 
 
 class Embedder(Protocol):

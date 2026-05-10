@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi httpx pytest ruff \
+          pip install pytest ruff \
             "tree-sitter>=0.23,<0.25" "tree-sitter-python>=0.23,<0.25" \
             "anthropic>=0.50.0" "numpy>=1.24" "faiss-cpu>=1.9.0"
           pip install -e . --no-deps
