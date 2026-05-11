@@ -12,8 +12,15 @@ from pathlib import Path
 import pytest
 
 from codebase_explainer.eval.case import GoldenCase, load_case, load_cases
+from codebase_explainer.eval.judges import (
+    build_faithfulness_prompt,
+    build_gist_prompt,
+    judge_faithfulness,
+    judge_gist,
+    parse_score,
+)
 from codebase_explainer.eval.report import render_markdown
-from codebase_explainer.eval.runner import CaseResult, run_eval
+from codebase_explainer.eval.runner import CaseResult, _extract_tool_outputs, run_eval
 from codebase_explainer.eval.scorers import citation_match, extract_citations
 
 # -- case loader -------------------------------------------------------------
@@ -320,3 +327,277 @@ def test_report_renders_pass_and_fail_badges():
     out = render_markdown(results)
     assert "✅" in out
     assert "❌" in out
+
+
+# -- 5b: judge prompt builders + score parser -------------------------------
+
+
+def test_parse_score_simple_digit():
+    assert parse_score("3") == 3
+    assert parse_score("5") == 5
+    assert parse_score("1") == 1
+
+
+def test_parse_score_inside_sentence():
+    assert parse_score("Score: 4") == 4
+    assert parse_score("The answer scores 2 out of 5.") == 2
+
+
+def test_parse_score_rejects_out_of_range_digits():
+    """0, 6, 7, 8, 9 are not valid judge scores; should return None."""
+    assert parse_score("0") is None
+    assert parse_score("6") is None
+    assert parse_score("Score: 9") is None
+
+
+def test_parse_score_does_not_match_inside_larger_number():
+    """'10/10' should not score as 1 (word boundaries protect us)."""
+    assert parse_score("10/10") is None
+    assert parse_score("answer is 100% confident") is None
+
+
+def test_parse_score_handles_none_and_empty():
+    assert parse_score(None) is None
+    assert parse_score("") is None
+    assert parse_score("no digits at all") is None
+
+
+def test_faithfulness_prompt_contains_question_answer_outputs():
+    prompt = build_faithfulness_prompt(
+        question="Where is foo defined?",
+        answer="In foo.py:42.",
+        tool_outputs=["foo defined at foo.py:42"],
+    )
+    assert "Where is foo defined?" in prompt
+    assert "In foo.py:42." in prompt
+    assert "foo defined at foo.py:42" in prompt
+    assert "1-5" in prompt
+    assert "single digit" in prompt
+
+
+def test_faithfulness_prompt_handles_empty_tool_outputs():
+    prompt = build_faithfulness_prompt(
+        question="q", answer="a", tool_outputs=[]
+    )
+    assert "no tool calls were made" in prompt
+    assert "q" in prompt
+    assert "a" in prompt
+
+
+def test_gist_prompt_contains_question_answer_gist():
+    prompt = build_gist_prompt(
+        question="Where is foo?",
+        answer="foo.py:42",
+        expected_gist="foo is at foo.py:42 and returns int.",
+    )
+    assert "Where is foo?" in prompt
+    assert "foo.py:42" in prompt
+    assert "foo is at foo.py:42 and returns int." in prompt
+    assert "single digit" in prompt
+
+
+# -- 5b: judge functions with mock client -----------------------------------
+
+
+class _FakeBlock:
+    """Mimics an Anthropic content block (text type)."""
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class _FakeResponse:
+    def __init__(self, text):
+        self.content = [_FakeBlock(text)]
+
+
+class _FakeClient:
+    """Mimics ``Anthropic().messages.create(...)``."""
+    def __init__(self, response_text):
+        self._response_text = response_text
+        self.calls = []  # records each create() call's kwargs
+
+        class _Messages:
+            def __init__(self, parent):
+                self._parent = parent
+
+            def create(self, **kw):
+                self._parent.calls.append(kw)
+                return _FakeResponse(self._parent._response_text)
+
+        self.messages = _Messages(self)
+
+
+class _BrokenClient:
+    """Mimics a client whose .messages.create raises."""
+    class _Messages:
+        def create(self, **_kw):
+            raise RuntimeError("api down")
+
+    messages = _Messages()
+
+
+def test_judge_faithfulness_returns_parsed_score():
+    client = _FakeClient("4")
+    score = judge_faithfulness(
+        client=client, model="some-model",
+        question="q", answer="a", tool_outputs=["out"],
+    )
+    assert score == 4
+    # Model id passed through verbatim — never hardcoded inside judges.py
+    assert client.calls[0]["model"] == "some-model"
+    # Single-shot, low max_tokens
+    assert client.calls[0]["max_tokens"] <= 16
+
+
+def test_judge_gist_returns_parsed_score():
+    client = _FakeClient("Score: 3")
+    score = judge_gist(
+        client=client, model="x", question="q", answer="a", expected_gist="g",
+    )
+    assert score == 3
+
+
+def test_judge_returns_none_when_client_raises():
+    """Non-fatal failure: a flaky judge call shouldn't crash an eval run."""
+    score = judge_faithfulness(
+        client=_BrokenClient(), model="x",
+        question="q", answer="a", tool_outputs=[],
+    )
+    assert score is None
+
+
+def test_judge_returns_none_when_response_has_no_digit():
+    client = _FakeClient("I refuse to score this answer.")
+    score = judge_faithfulness(
+        client=client, model="x",
+        question="q", answer="a", tool_outputs=[],
+    )
+    assert score is None
+
+
+# -- 5b: runner integration with judges -------------------------------------
+
+
+def test_runner_skips_judges_when_judge_client_is_none():
+    """Default behaviour: no judge_client means no scores, no API calls."""
+    results = run_eval(
+        [_case(citations=("foo.py:1",))],
+        agent_factory=lambda _c: _FakeAgent("see foo.py:1"),
+        judge_client=None,
+        judge_model="any-model",
+    )
+    assert results[0].faithfulness_score is None
+    assert results[0].gist_score is None
+
+
+def test_runner_skips_judges_when_judge_model_is_none():
+    """Symmetric: client without model also skips."""
+    results = run_eval(
+        [_case(citations=("foo.py:1",))],
+        agent_factory=lambda _c: _FakeAgent("see foo.py:1"),
+        judge_client=_FakeClient("5"),
+        judge_model=None,
+    )
+    assert results[0].faithfulness_score is None
+    assert results[0].gist_score is None
+
+
+def test_runner_calls_both_judges_when_configured():
+    client = _FakeClient("4")  # both judges return 4
+    results = run_eval(
+        [_case(citations=("foo.py:1",))],
+        agent_factory=lambda _c: _FakeAgent("see foo.py:1"),
+        judge_client=client,
+        judge_model="judge-x",
+    )
+    assert results[0].faithfulness_score == 4
+    assert results[0].gist_score == 4
+    # Two calls: faithfulness + gist
+    assert len(client.calls) == 2
+    # The model id we passed in was used in both calls
+    assert all(c["model"] == "judge-x" for c in client.calls)
+
+
+def test_runner_does_not_call_judges_when_case_errored():
+    """If agent run failed, we don't waste judge calls on an empty answer."""
+    client = _FakeClient("5")
+
+    def boom_factory(_c):
+        raise RuntimeError("agent init failed")
+
+    results = run_eval(
+        [_case()],
+        agent_factory=boom_factory,
+        judge_client=client,
+        judge_model="judge-x",
+    )
+    assert results[0].error is not None
+    assert results[0].faithfulness_score is None
+    assert results[0].gist_score is None
+    assert client.calls == []
+
+
+def test_extract_tool_outputs_finds_results_in_user_messages():
+    messages = [
+        {"role": "user", "content": "question text"},
+        {"role": "assistant", "content": [
+            # Pydantic-shaped block we ignore
+            type("X", (), {"type": "text", "text": "thinking..."})(),
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "abc", "content": "first output"},
+            {"type": "tool_result", "tool_use_id": "def", "content": "second output"},
+        ]},
+    ]
+    out = _extract_tool_outputs(messages)
+    assert out == ["first output", "second output"]
+
+
+def test_extract_tool_outputs_returns_empty_for_missing_attribute():
+    """Stub agents in tests don't have .messages; runner must not crash."""
+    assert _extract_tool_outputs(None) == []
+    assert _extract_tool_outputs([]) == []
+
+
+# -- 5b: report includes judge scores when present --------------------------
+
+
+def test_report_includes_judge_summary_when_judges_ran():
+    results = [
+        CaseResult(case=_case(id="a"), answer="foo.py:1",
+                   citation_pass=True, latency_seconds=0.1,
+                   faithfulness_score=5, gist_score=4),
+        CaseResult(case=_case(id="b"), answer="bar.py:1",
+                   citation_pass=True, latency_seconds=0.1,
+                   faithfulness_score=3, gist_score=3),
+    ]
+    out = render_markdown(results)
+    assert "faithfulness" in out.lower()
+    assert "gist match" in out.lower()
+    assert "/5" in out  # score scale appears
+
+
+def test_report_omits_judge_lines_when_judges_skipped():
+    """Clean reports for citation-only runs."""
+    results = [
+        CaseResult(case=_case(id="a"), answer="foo.py:1",
+                   citation_pass=True, latency_seconds=0.1),
+    ]
+    out = render_markdown(results)
+    assert "faithfulness" not in out.lower()
+    assert "gist match" not in out.lower()
+
+
+def test_report_handles_partial_judge_scores():
+    """One case scored, one not (judge failed) — both render fine."""
+    results = [
+        CaseResult(case=_case(id="a"), answer="x", citation_pass=False,
+                   latency_seconds=0.1, faithfulness_score=4, gist_score=None),
+        CaseResult(case=_case(id="b"), answer="y", citation_pass=False,
+                   latency_seconds=0.1, faithfulness_score=None, gist_score=2),
+    ]
+    out = render_markdown(results)
+    assert "n/a" in out  # missing score rendered
+    assert "4/5" in out
+    assert "2/5" in out

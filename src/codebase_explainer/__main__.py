@@ -102,6 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["low", "medium", "high", "max"],
         help=f"Reasoning effort level (default: {DEFAULT_EFFORT}).",
     )
+    eval_cmd.add_argument(
+        "--judge-model",
+        default=None,
+        help=(
+            "Model id used for LLM-judge scoring (faithfulness + gist). "
+            "Overrides the EVAL_JUDGE_MODEL environment variable. "
+            "Unset = skip judges (citation_match still runs). "
+            "Never has a hardcoded default."
+        ),
+    )
     return parser
 
 
@@ -149,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "eval":
         # Lazy imports keep the index/chat paths free of eval-only modules.
+        import os
+
         from codebase_explainer.eval.case import load_cases
         from codebase_explainer.eval.report import render_markdown
         from codebase_explainer.eval.runner import run_eval
@@ -158,13 +170,42 @@ def main(argv: list[str] | None = None) -> int:
             print(f"No .toml cases under {args.cases}", file=sys.stderr)
             return 1
 
+        # Judge model resolution: CLI flag > env var > None (skip judges).
+        # Never falls back to a hardcoded default — that's the rule.
+        judge_model = args.judge_model or os.environ.get("EVAL_JUDGE_MODEL") or None
+        judge_client = None
+        if judge_model:
+            from anthropic import Anthropic
+
+            try:
+                judge_client = Anthropic()
+            except Exception as e:  # noqa: BLE001
+                print(
+                    f"Warning: judge_model={judge_model!r} set but Anthropic "
+                    f"client init failed ({type(e).__name__}: {e}). "
+                    "Skipping LLM judges; citation_match still runs.",
+                    file=sys.stderr,
+                )
+                judge_model = None
+        else:
+            print(
+                "Note: no --judge-model and no EVAL_JUDGE_MODEL env var set; "
+                "LLM judges (faithfulness, gist match) will be skipped.",
+                file=sys.stderr,
+            )
+
         agent_factory = _build_real_agent_factory(
             db_path=args.db,
             repo_root=args.repo_root,
             model=args.model,
             effort=args.effort,
         )
-        results = run_eval(cases, agent_factory=agent_factory)
+        results = run_eval(
+            cases,
+            agent_factory=agent_factory,
+            judge_client=judge_client,
+            judge_model=judge_model,
+        )
         args.output.write_text(render_markdown(results), encoding="utf-8")
 
         passes = sum(1 for r in results if r.citation_pass)
