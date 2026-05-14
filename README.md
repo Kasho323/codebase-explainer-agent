@@ -133,6 +133,25 @@ Good first questions to try:
 - *"Explain what dfs._visit does and where it's defined."*
 - *"Why does benchmark.py exist? What is it measuring?"*
 
+### Local web demo
+
+Same agent, in a browser. Requires an API key.
+
+```bash
+pip install -r requirements.txt
+python -m codebase_explainer index ./some-repo --db /tmp/x.sqlite3
+
+# Anthropic (default)
+ANTHROPIC_API_KEY=sk-ant-... \
+    python -m codebase_explainer demo --db /tmp/x.sqlite3 --repo-root ./some-repo
+
+# Open http://localhost:7860
+```
+
+DeepSeek's Anthropic-compatible endpoint also works — set
+`ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`, plus
+`ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`) and `ANTHROPIC_MODEL`.
+
 ---
 
 ## Evaluation (Week 5 — planned)
