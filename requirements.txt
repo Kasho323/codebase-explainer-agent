@@ -4,5 +4,6 @@ tree-sitter-python>=0.23.0
 sentence-transformers>=3.3.0
 faiss-cpu>=1.9.0
 numpy>=1.24
+gradio>=5.0.0,<6.0
 pytest>=8.3.0
 ruff>=0.7.0

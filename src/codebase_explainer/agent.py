@@ -15,6 +15,7 @@ value confirms the cache is hitting.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -34,6 +35,32 @@ DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 16000
 DEFAULT_EFFORT = "medium"
 MAX_TOOL_ITERATIONS = 25  # safety net against runaway loops
+
+# Keys in ``client.messages.create(...)`` that are Anthropic-specific and
+# rejected by some Anthropic-compatible endpoints (currently: DeepSeek).
+# Stripped only when ``_is_deepseek_endpoint()`` is True — default
+# Anthropic behaviour is unchanged.
+_DEEPSEEK_INCOMPATIBLE_PARAMS = frozenset(
+    {"cache_control", "thinking", "output_config"}
+)
+
+
+def _is_deepseek_endpoint() -> bool:
+    """True when ``ANTHROPIC_BASE_URL`` points at DeepSeek's Anthropic-compat layer.
+
+    DeepSeek's ``/anthropic`` endpoint accepts the basic Messages API shape
+    but rejects Anthropic-only extensions (``thinking``, ``cache_control``,
+    ``output_config``) with a 400. When this returns True, the agent strips
+    those keys before calling ``create()`` so the request reaches DeepSeek
+    cleanly.
+
+    Heuristic by hostname substring keeps the check zero-config — the user
+    sets ``ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`` and the
+    compat path kicks in automatically. No new flags, no new instance
+    attributes.
+    """
+    base_url = os.environ.get("ANTHROPIC_BASE_URL") or ""
+    return "deepseek.com" in base_url.lower()
 
 SYSTEM_PROMPT = """\
 You are a code-explorer agent. The user is asking questions about a Python repo \
@@ -140,16 +167,22 @@ class Agent:
         self.messages.append({"role": "user", "content": user_message})
 
         for _ in range(MAX_TOOL_ITERATIONS):
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                system=SYSTEM_PROMPT,
-                tools=self._tools,
-                cache_control={"type": "ephemeral"},
-                thinking={"type": "adaptive"},
-                output_config={"effort": self.effort},
-                messages=self.messages,
-            )
+            create_kwargs: dict[str, Any] = {
+                "model": self.model,
+                "max_tokens": self.max_tokens,
+                "system": SYSTEM_PROMPT,
+                "tools": self._tools,
+                "cache_control": {"type": "ephemeral"},
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": self.effort},
+                "messages": self.messages,
+            }
+            # DeepSeek-compat layer rejects Anthropic-specific extensions.
+            # Default Anthropic endpoint keeps the full param set.
+            if _is_deepseek_endpoint():
+                for key in _DEEPSEEK_INCOMPATIBLE_PARAMS:
+                    create_kwargs.pop(key, None)
+            response = self.client.messages.create(**create_kwargs)
 
             # Preserve full content (including tool_use and thinking blocks)
             # so the next request gets a valid round-trip.

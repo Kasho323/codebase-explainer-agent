@@ -112,6 +112,48 @@ def build_parser() -> argparse.ArgumentParser:
             "Never has a hardcoded default."
         ),
     )
+
+    demo_p = sub.add_parser(
+        "demo",
+        help="Launch a local Gradio web demo of the chat agent.",
+    )
+    demo_p.add_argument(
+        "--db",
+        type=Path,
+        default=Path(".codebase-index.sqlite3"),
+        help="Index DB path (default: .codebase-index.sqlite3).",
+    )
+    demo_p.add_argument(
+        "--repo-root",
+        type=Path,
+        default=Path("."),
+        help="Path to the repo the index was built against (default: cwd).",
+    )
+    demo_p.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"Claude model ID (default: {DEFAULT_MODEL}).",
+    )
+    demo_p.add_argument(
+        "--effort",
+        default=DEFAULT_EFFORT,
+        choices=["low", "medium", "high", "max"],
+        help=f"Reasoning effort level (default: {DEFAULT_EFFORT}).",
+    )
+    demo_p.add_argument(
+        "--port",
+        type=int,
+        default=7860,
+        help="Local port for the Gradio server (default: 7860).",
+    )
+    demo_p.add_argument(
+        "--share",
+        action="store_true",
+        help=(
+            "Expose the demo via Gradio's tunnel to a public URL. "
+            "Use carefully — anyone with the link can spend your Anthropic API budget."
+        ),
+    )
     return parser
 
 
@@ -211,6 +253,19 @@ def main(argv: list[str] | None = None) -> int:
         passes = sum(1 for r in results if r.citation_pass)
         print(f"Wrote {args.output}  —  {passes}/{len(results)} citation pass.")
         return 0
+
+    if args.cmd == "demo":
+        # Lazy import keeps the index/chat/eval paths free of gradio.
+        from codebase_explainer.demo import run_demo
+
+        return run_demo(
+            db_path=args.db,
+            repo_root=args.repo_root,
+            model=args.model,
+            effort=args.effort,
+            port=args.port,
+            share=args.share,
+        )
 
     parser.print_help()
     return 2
