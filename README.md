@@ -152,6 +152,14 @@ DeepSeek's Anthropic-compatible endpoint also works — set
 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`, plus
 `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`) and `ANTHROPIC_MODEL`.
 
+#### Demo screenshots
+
+![Gradio demo interface](docs/screenshots/demo-interface.png)
+*Gradio local demo interface with DeepSeek-compatible endpoint.*
+
+![Grounded answer with citations](docs/screenshots/demo-grounded-answer.png)
+*Grounded answer with source `path:line` citations.*
+
 ---
 
 ## Evaluation (Week 5 — planned)
