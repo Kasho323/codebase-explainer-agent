@@ -1,12 +1,15 @@
 # Codebase Explainer Agent
 
-> Point it at any Python repo. Ask engineering questions. Get answers grounded in the actual source code.
+> An LLM agent that answers engineering questions about any Python repo. Backed by a tree-sitter symbol graph in SQLite — every claim cites `path:line` you can click to verify.
 
 [![CI](https://github.com/Kasho323/codebase-explainer-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Kasho323/codebase-explainer-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-⚠️ **Status: under active development — first public milestone targeted for mid-June 2026.** Indexer, CLI chat, and the embedding-backed semantic search tool are working today; multi-language grammars, eval harness, and Gradio UI ship in weeks 4–6. See [Roadmap](#roadmap).
+![Grounded answer with citations](docs/screenshots/demo-grounded-answer.png)
+*A grounded answer with `path:line` citations — every claim is verifiable against the indexed source.*
+
+**Status:** Python indexer, six-tool agent loop, semantic search, initial golden-case eval harness, and local Gradio demo are all working today (196 tests, CI green). Remaining work: additional language grammars and a public Hugging Face Spaces deploy. See [Roadmap](#roadmap).
 
 ---
 
@@ -152,21 +155,18 @@ DeepSeek's Anthropic-compatible endpoint also works — set
 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`, plus
 `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`) and `ANTHROPIC_MODEL`.
 
-#### Demo screenshots
+#### Demo screenshot
 
 ![Gradio demo interface](docs/screenshots/demo-interface.png)
-*Gradio local demo interface with DeepSeek-compatible endpoint.*
-
-![Grounded answer with citations](docs/screenshots/demo-grounded-answer.png)
-*Grounded answer with source `path:line` citations.*
+*Gradio local demo interface, here running against a DeepSeek-compatible endpoint.*
 
 ---
 
-## Evaluation (Week 5 — planned)
+## Evaluation
 
-*Coming Week 5:* Quality is tracked against a frozen eval set: **5 real open-source repos × 4 question types = 20 golden cases**. See [`eval/golden_cases/`](eval/golden_cases/).
+Quality is tracked against an initial golden case set under [`eval/golden_cases/`](eval/golden_cases/) — currently 3 cases on the [`basket-graph-analytics`](https://github.com/Kasho323/basket-graph-analytics) repo, growing as the case set fills out.
 
-Each case has a question, an expected `file:line` citation that any correct answer must include, and a free-form "expected gist" judged by Claude as LLM judge. Metrics tracked per release: citation accuracy, answer faithfulness, end-to-end latency p50/p95, token cost per query (split into input / cached / output).
+Each case has a question, an expected `path:line` citation that any correct answer must include, and a free-form "expected gist". Three scorers run per case: citation match (regex), faithfulness (LLM judge), gist match (LLM judge). The judge model is pluggable via `--judge-model` / `EVAL_JUDGE_MODEL` so the same harness runs against Anthropic or any Anthropic-compatible endpoint.
 
 ---
 
@@ -181,8 +181,12 @@ Each case has a question, an expected `file:line` citation that any correct answ
   - [x] `view_symbol` tool: one-shot deep lookup returning location, signature, docstring, source body, parent, callers, and callees.
   - [x] Embedding layer: every symbol embedded with `sentence-transformers/all-MiniLM-L6-v2`, vectors stored as float32 BLOBs in SQLite, FAISS `IndexFlatIP` built in-memory per query. New `search_semantic` tool wired into the agent. The tool is auto-dropped from the active tool list if no embeddings exist, so prompt-cache stays stable across sessions. **115 tests passing.**
   - [ ] JavaScript and Go grammars (Go may slip to Week 5 depending on indexer dispatch refactor).
-- [ ] **Week 5** (5/26–6/1) — Eval harness with 20 golden cases; `git_log` tool; deeper prompt-caching tuning across long sessions.
-- [ ] **Week 6** (6/2–6/15) — Gradio UI; Hugging Face Spaces deploy; demo gif; polish README; companion blog post.
+- [ ] **Week 5** (5/26–6/1) — partially shipped:
+  - [x] Initial golden-case eval harness with three scorers (citation match, LLM-judge faithfulness, LLM-judge gist match). Case set grows per release.
+  - [ ] `git_log` tool; deeper prompt-caching tuning across long sessions.
+- [ ] **Week 6** (6/2–6/15) — partially shipped:
+  - [x] Local Gradio demo (`python -m codebase_explainer demo`) with optional DeepSeek-compatible endpoint.
+  - [ ] Hugging Face Spaces deploy; demo gif; companion blog post.
 
 ---
 
